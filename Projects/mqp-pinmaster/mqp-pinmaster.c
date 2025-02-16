@@ -1,4 +1,5 @@
 #include "mqp-pinmaster.h"
+#include "descriptor.h"
 
 #define PP_OUTD0 PF4
 #define PP_OUTD1 PF5
@@ -34,7 +35,7 @@ static void pp_data_out(void)
 {
 	int count = Endpoint_BytesInEndpoint();
 	static bool ctrl = false;
-	for(int i = 0; i < count; i++) {
+	for (int i = 0; i < count; i++) {
 		uint8_t c = Endpoint_Read_8();
 
 		if (!ctrl && c == 0x9b) {
@@ -49,11 +50,31 @@ static void pp_data_out(void)
 
 		while((PINB & _BV(PP_BUSY)));
 		PORTF = (PORTF & 0x0f) | (c << 4);
-		if (c & 0x10) PORTB |= _BV(PP_OUTD4); else PORTB &= ~_BV(PP_OUTD4);
-		if (c & 0x20) PORTB |= _BV(PP_OUTD5); else PORTB &= ~_BV(PP_OUTD5);
-		if (c & 0x40) PORTB |= _BV(PP_OUTD6); else PORTB &= ~_BV(PP_OUTD6);
-		if (c & 0x80) PORTB |= _BV(PP_OUTD7); else PORTB &= ~_BV(PP_OUTD7);
-		if (ctrl) PORTD &= ~_BV(PP_INIT); else PORTD |= _BV(PP_INIT);
+		if (c & 0x10)
+			PORTB |= _BV(PP_OUTD4);
+		else
+			PORTB &= ~_BV(PP_OUTD4);
+
+		if (c & 0x20)
+			PORTB |= _BV(PP_OUTD5);
+		else
+			PORTB &= ~_BV(PP_OUTD5);
+
+		if (c & 0x40)
+			PORTB |= _BV(PP_OUTD6);
+		else
+			PORTB &= ~_BV(PP_OUTD6);
+
+		if (c & 0x80)
+			PORTB |= _BV(PP_OUTD7);
+		else
+			PORTB &= ~_BV(PP_OUTD7);
+
+		if (ctrl)
+			PORTD &= ~_BV(PP_INIT);
+		else
+			PORTD |= _BV(PP_INIT);
+
 		PORTC |= _BV(PP_AUTO_LF);
 		_delay_us(1);
 		PORTD &= ~_BV(PP_STROBE);
@@ -168,10 +189,28 @@ void Pinmaster_Task(void)
 	}
 }
 
-uint16_t CALLBACK_USB_GetDescriptor(const uint16_t wValue,
-                                    const uint16_t wIndex,
-                                    const void** const DescriptorAddress)
+void EVENT_USB_Device_ControlRequest(void)
 {
-	return PINMASTER_GetDescriptor(wValue, wIndex, DescriptorAddress);
+	const void* DescriptorPointer;
+	uint16_t    DescriptorSize;
+
+	/* NB: bmRequestType from Windows will be 0xC0 (REQDIR_DEVICETOHOST|REQTYPE_VENDOR|REQREC_DEVICE) for
+	   Compatible ID and 0xC1 (REQDIR_DEVICETOHOST|REQTYPE_VENDOR|REQREC_INTERFACE) for Extended Properties */
+	if ((USB_ControlRequest.bmRequestType & (CONTROL_REQTYPE_DIRECTION|CONTROL_REQTYPE_TYPE)) != (REQDIR_DEVICETOHOST|REQTYPE_VENDOR))
+		return;
+
+	switch (USB_ControlRequest.bRequest) {
+	case REQ_GetOSFeatureDescriptor:
+		DescriptorSize = USB_GetOSFeatureDescriptor(USB_ControlRequest.wValue>>8,
+							    USB_ControlRequest.wIndex,
+							    USB_ControlRequest.bmRequestType & CONTROL_REQTYPE_RECIPIENT,
+							    &DescriptorPointer);
+		if (DescriptorSize == NO_DESCRIPTOR)
+			return;
+		Endpoint_ClearSETUP();
+		Endpoint_Write_Control_PStream_LE(DescriptorPointer, DescriptorSize);
+		Endpoint_ClearOUT();
+		break;
+	}
 }
 
