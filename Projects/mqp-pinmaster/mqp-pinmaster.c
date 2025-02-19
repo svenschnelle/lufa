@@ -84,9 +84,10 @@ static void pp_data_out(void)
 	}
 }
 
-static void pp_data_in(void)
+static int pp_data_in(void)
 {
-	for(int i = 0; i < 64; i++) {
+	int i;
+	for(i = 0; i < 64; i++) {
 		int cnt = 512;
 		while ((PINB & _BV(PP_ACK)) && cnt--);
 
@@ -110,6 +111,7 @@ static void pp_data_in(void)
 		PORTC |= _BV(PP_AUTO_LF);
 		Endpoint_Write_8(tmp);
 	}
+	return i > 0;
 }
 
 int main(void)
@@ -177,8 +179,8 @@ void Pinmaster_Task(void)
 
 	Endpoint_SelectEndpoint(PINMASTER_DATA_IN_EPADDR);
 	if (Endpoint_IsINReady()) {
-		pp_data_in();
-		Endpoint_ClearIN();
+		if (pp_data_in())
+			Endpoint_ClearIN();
 	}
 
 	Endpoint_SelectEndpoint(PINMASTER_DATA_OUT_EPADDR);
